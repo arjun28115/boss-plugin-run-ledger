@@ -80,11 +80,63 @@ rm -rf ~/.boss_debug/plugin-cache/ai.rever.boss.plugin.dynamic.runledger
 
 Then restart the dev host. Plugins load at startup.
 
+## Access and data
+
+Worth stating plainly, because this plugin runs commands and reads the environment.
+
+| What it touches | Detail |
+|---|---|
+| Runs | A child process per launch, with the command you typed, in the project directory |
+| Writes | `<project>/.boss/run-ledger/` only. Nothing outside the open project |
+| Reads | Only the environment variables you name per run. Never the whole environment |
+| Network | None. No external service, no telemetry, nothing leaves the machine |
+| Permissions | None declared. It uses no host provider beyond the project path and the plugin scope |
+
+The environment rule is deliberate. Capturing everything would be the easy default and would put
+credentials into a file that tends to get committed, so the plugin records only what you ask for by
+name, and the panel says so above the field.
+
+The working-tree patch it stores is a `git diff` of the project. If your uncommitted work contains a
+secret, the patch will too, exactly as the repository would.
+
+## Compatibility
+
+| | |
+|---|---|
+| Built and tested against | `boss-plugin-api` 1.0.88 locally, 1.0.89 in CI |
+| Declared `minApiVersion` | 1.0.73 |
+| Declared `minBossVersion` | 9.4.2 |
+| Operating systems exercised | macOS only |
+| JDK | 17 |
+
+The Windows branch of the launcher (`cmd.exe /c`) is written but never run. Linux is untested.
+
+## Verification
+
+Forty tests, green locally and in CI on Ubuntu. They cover the ledger format, provenance capture,
+artifact rescue, the launcher and the panel state, including crash-truncated ledger lines, forward
+compatible reads, budget exhaustion across globs, a symlink pointing outside the project, a detached
+HEAD, and a real subprocess whose output is then rescued.
+
+**Not verified, and worth knowing before reviewing:**
+
+- **It has never been loaded into a running BOSS host.** `minBossVersion` is declared from the
+  manifest of a current plugin, not from a launch I performed. The panel compiles against the API
+  and follows the shape of `git-status` and `run-configurations`, but its theme, slot and layout are
+  unseen.
+- **No demo recording.** I can build and test it but cannot run the desktop host here, so there are
+  no screenshots. I would rather say that than stage something.
+- **Windows and Linux are untested**, as above.
+
+## Ownership
+
+Written by Arjun Singla (`arjun28115`). No other collaborators. No third-party code is vendored; the
+dependencies are the ones the plugin template declares, plus `kotlinx-serialization-json` for the
+ledger format.
+
 ## Status
 
-Version 0.1.0. Forty tests cover the ledger format, provenance capture, artifact rescue, the
-launcher, and the panel state, including crash truncated ledger lines, forward compatible reads,
-budget exhaustion across globs, symlink escape, and detached HEAD.
+Version 0.1.0.
 
 Not yet done, and deliberately left out of the first version: comparing two runs side by side, and
 an MCP tool so an agent can read the ledger.
