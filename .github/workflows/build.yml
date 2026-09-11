@@ -1,0 +1,38 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Download the boss-plugin-api jar
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p build/downloaded-deps
+          url=$(gh api repos/risa-labs-inc/boss-plugin-api/releases/latest \
+            --jq '.assets[] | select(.name | endswith(".jar")) | .browser_download_url' | head -1)
+          echo "Resolved api jar: $url"
+          curl -fsSL "$url" -o build/downloaded-deps/boss-plugin-api.jar
+
+      - name: Test and build the plugin jar
+        env:
+          CI: 'true'
+        run: ./gradlew test buildPluginJar --no-daemon
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: boss-plugin-run-ledger
+          path: build/libs/*.jar
