@@ -103,11 +103,26 @@ secret, the patch will too, exactly as the repository would.
 
 | | |
 |---|---|
+| Declared `apiVersion` | 1.0.23 |
+| Declared `minBossVersion` | none |
 | Built and tested against | `boss-plugin-api` 1.0.88 locally, 1.0.89 in CI |
-| Declared `minApiVersion` | 1.0.73 |
-| Declared `minBossVersion` | 9.4.2 |
 | Operating systems exercised | macOS only |
 | JDK | 17 |
+
+`apiVersion` is a **floor**, not a build stamp: the host loads a plugin only when its own API minor
+is at least the declared one, so the guidance is to declare the lowest minor that carries every
+symbol the plugin uses. This started at 1.0.88, copied from the jar it was compiled against, which
+would have refused every host between 1.0.23 and 1.0.87 for no reason.
+
+1.0.23 is measured rather than guessed. Run Ledger uses nine API symbols. Eight of them
+(`DynamicPlugin`, `PluginContext`, `PanelInfo`, `PanelId`, `PanelComponentWithUI`, `Panel`,
+`BossTheme`, `BossThemeColors`) are present as far back as 1.0.20. The ninth,
+`PluginContext.clipboardProvider`, is **absent in 1.0.22 and present in 1.0.23**, found by
+downloading the released jars and reading `PluginContext` out of each with `javap`.
+
+`minBossVersion` is empty because there is no host behaviour this depends on, and the manifest
+reference says to leave it empty when there is no hard floor. The 9.4.2 it previously declared was
+copied from another plugin's manifest and was never established by a launch.
 
 The Windows branch of the launcher (`cmd.exe /c`) is written but never run. Linux is untested.
 
