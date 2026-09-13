@@ -49,6 +49,17 @@ dependencies {
 
     testImplementation(kotlin("test"))
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.10.2")
+
+    // The api jar again, test-scoped. `compileOnly` above deliberately keeps it out of the plugin
+    // JAR, but compileOnly does NOT reach the test compile classpath, so a test that names
+    // McpToolDefinition or McpToolArgs fails with "Cannot access class ... check your module
+    // classpath" rather than anything that points at the real cause. terminal-tab repeats it the
+    // same way and for the same reason.
+    if (useLocalDependencies) {
+        testImplementation(files("$bossPluginApiPath/build/libs/boss-plugin-api-1.0.88.jar"))
+    } else {
+        testImplementation(files("build/downloaded-deps/boss-plugin-api.jar"))
+    }
 }
 
 tasks.test {
