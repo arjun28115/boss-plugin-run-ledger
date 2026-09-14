@@ -25,6 +25,8 @@ import java.nio.file.attribute.BasicFileAttributes
  *    drag unrelated files into the ledger.
  */
 object ArtifactRescue {
+    /** Rescued outputs live here, so a user's file name can never collide with run metadata. */
+    const val ARTIFACTS_DIR = "artifacts"
 
     const val DEFAULT_BUDGET_BYTES: Long = 512L * 1024 * 1024
     private const val MAX_WALK_DEPTH = 12
@@ -62,7 +64,14 @@ object ArtifactRescue {
                     continue
                 }
                 val relative = workingDirectory.relativize(match).toString()
-                results += copyOne(match, runDirectory.resolve(relative), glob, relative, size)
+                // Under ARTIFACTS_DIR, never straight into the run directory. A declared output
+                // named `working-tree.patch` or `console.log` would otherwise land on the
+                // provenance patch or the console capture and replace it, destroying the very
+                // record this plugin exists to keep. A reserved-name list would work today and rot
+                // the moment another run-directory file is added; a subdirectory cannot collide at
+                // all.
+                val storedRelative = "$ARTIFACTS_DIR/$relative"
+                results += copyOne(match, runDirectory.resolve(storedRelative), glob, storedRelative, size)
                     .also { if (it.outcome == RescueOutcome.RESCUED) remaining -= size }
             }
         }

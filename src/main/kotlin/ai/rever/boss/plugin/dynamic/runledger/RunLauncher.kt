@@ -1,9 +1,11 @@
 package ai.rever.boss.plugin.dynamic.runledger
 
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runInterruptible
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.nio.file.Path
@@ -107,7 +109,22 @@ class RunLauncher(
             // A run may have no stdin; closing it stops an interactive command from hanging on a
             // prompt nobody can answer.
             runCatching { process.outputStream.close() }
-            process.waitFor()
+            try {
+                // runInterruptible, not a bare waitFor: cancelling the plugin scope cannot
+                // interrupt a blocking wait, so the coroutine went away and the child carried on
+                // writing into console.log after the plugin that launched it had been unloaded.
+                // This turns cancellation into an interrupt, and the child is killed on the way
+                // out - a run belongs to the plugin that started it.
+                runInterruptible { process.waitFor() }
+            } catch (e: CancellationException) {
+                process.destroyForcibly()
+                throw e
+            }
+        } catch (e: CancellationException) {
+            // Before the generic catch below, which would otherwise swallow the rethrow above and
+            // report a cancelled run as one that failed to start. CancellationException is an
+            // Exception, so ordering is the whole of what keeps them apart.
+            throw e
         } catch (e: Exception) {
             runCatching { consoleLog.appendText("\n[run-ledger] could not start: ${e.message}\n") }
             null

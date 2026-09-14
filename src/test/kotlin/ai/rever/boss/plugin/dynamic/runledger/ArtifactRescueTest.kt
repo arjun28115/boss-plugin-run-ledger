@@ -35,9 +35,9 @@ class ArtifactRescueTest {
 
         assertEquals(1, results.size)
         assertEquals(RescueOutcome.RESCUED, results.single().outcome)
-        assertEquals("outputs/metrics.json", results.single().storedPath)
-        assertTrue(Files.exists(runDir.resolve("outputs/metrics.json")))
-        assertEquals(32, Files.size(runDir.resolve("outputs/metrics.json")).toInt())
+        assertEquals("artifacts/outputs/metrics.json", results.single().storedPath)
+        assertTrue(Files.exists(runDir.resolve("artifacts/outputs/metrics.json")))
+        assertEquals(32, Files.size(runDir.resolve("artifacts/outputs/metrics.json")).toInt())
     }
 
     @Test
@@ -61,7 +61,7 @@ class ArtifactRescueTest {
         assertEquals(RescueOutcome.OVER_BUDGET, results.single().outcome)
         assertEquals(4096L, results.single().bytes)
         assertFalse(
-            Files.exists(runDir.resolve("checkpoints/model.bin")),
+            Files.exists(runDir.resolve("artifacts/checkpoints/model.bin")),
             "over-budget files must not be half-copied",
         )
     }
@@ -121,7 +121,35 @@ class ArtifactRescueTest {
         val results = ArtifactRescue.rescue(work, runDir, listOf("**"))
 
         val stored = results.filter { it.outcome == RescueOutcome.RESCUED }.map { it.storedPath }
-        assertEquals(listOf("real.txt"), stored)
+        assertEquals(listOf("artifacts/real.txt"), stored)
+    }
+
+    @Test
+    fun `a declared output cannot overwrite the run's own provenance files`() {
+        // The failure this pins: a run that declares `*.patch` or `*.log` used to have its own
+        // output copied straight onto the provenance patch and the console capture, destroying
+        // the record the ledger exists to keep - and destroying it silently, reported as a
+        // successful rescue.
+        Files.createDirectories(runDir)
+        val patch = runDir.resolve(Provenance.PATCH_FILE_NAME)
+        val console = runDir.resolve(RunLauncher.CONSOLE_LOG_NAME)
+        Files.writeString(patch, "the real working-tree patch")
+        Files.writeString(console, "the real console capture")
+        write(Provenance.PATCH_FILE_NAME, 64)
+        write(RunLauncher.CONSOLE_LOG_NAME, 64)
+
+        val results = ArtifactRescue.rescue(
+            work,
+            runDir,
+            listOf(Provenance.PATCH_FILE_NAME, RunLauncher.CONSOLE_LOG_NAME),
+        )
+
+        assertEquals(2, results.count { it.outcome == RescueOutcome.RESCUED })
+        assertEquals("the real working-tree patch", Files.readString(patch))
+        assertEquals("the real console capture", Files.readString(console))
+        val dir = runDir.resolve(ArtifactRescue.ARTIFACTS_DIR)
+        assertEquals(64, Files.size(dir.resolve(Provenance.PATCH_FILE_NAME)).toInt())
+        assertEquals(64, Files.size(dir.resolve(RunLauncher.CONSOLE_LOG_NAME)).toInt())
     }
 
     @Test

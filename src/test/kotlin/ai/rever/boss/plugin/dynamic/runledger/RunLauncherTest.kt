@@ -2,7 +2,9 @@ package ai.rever.boss.plugin.dynamic.runledger
 
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeoutOrNull
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.Path
@@ -67,7 +69,9 @@ class RunLauncherTest {
 
         val rescued = record.artifacts.single()
         assertEquals(RescueOutcome.RESCUED, rescued.outcome)
-        val stored = store.runDirectory(record.id).resolve("outputs/metrics.json")
+        val stored = store.runDirectory(record.id)
+            .resolve(ArtifactRescue.ARTIFACTS_DIR)
+            .resolve("outputs/metrics.json")
         assertTrue(Files.readString(stored).contains("0.91"))
     }
 
@@ -163,5 +167,61 @@ class RunLauncherTest {
             Files.exists(store.runDirectory(record.id).resolve(Provenance.PATCH_FILE_NAME)),
             "the diff that was actually run must be stored with the run",
         )
+    }
+
+    @Test
+    fun `cancelling the scope that launched a run kills the child process`() {
+        // The failure this pins: the coroutine went away on cancellation but the child did not.
+        // A blocking waitFor cannot be cancelled, so unloading the plugin left an orphan process
+        // running against the project and appending to a console log nobody was reading.
+        val ownScope = CoroutineScope(Dispatchers.IO)
+        val ticks = project.resolve("ticks.txt")
+        val (_, job) = assertNotNull(
+            RunLauncher(store, ownScope).launch(
+                RunSpec(
+                    label = "long",
+                    // Bounded, so a child that survives a failing assertion still dies by itself
+                    // rather than outliving the test run.
+                    command = "for _ in $(seq 1 600); do echo tick >> ticks.txt; sleep 0.1; done",
+                    cwd = project.toString(),
+                ),
+            ),
+        )
+        awaitTrue("the child never started writing") {
+            Files.exists(ticks) && Files.size(ticks) > 0
+        }
+
+        ownScope.cancel()
+        // Bounded: an uninterruptible waitFor never ends, and a test that hangs forever wedges CI
+        // instead of reporting the defect it was written to catch.
+        runBlocking {
+            withTimeoutOrNull(JOIN_TIMEOUT_MILLIS) { job.join() }
+        } ?: throw AssertionError("cancelling the scope did not end the run coroutine")
+
+        // Long enough for many more ticks had the child survived the cancellation.
+        val atCancellation = Files.size(ticks)
+        Thread.sleep(CHILD_SETTLE_MILLIS)
+        assertEquals(
+            atCancellation,
+            Files.size(ticks),
+            "the child kept running after the scope that owned it was cancelled",
+        )
+    }
+
+    /** Polls until [condition] holds, so the test does not depend on a fixed start-up delay. */
+    private fun awaitTrue(message: String, condition: () -> Boolean) {
+        val deadline = System.currentTimeMillis() + AWAIT_TIMEOUT_MILLIS
+        while (System.currentTimeMillis() < deadline) {
+            if (condition()) return
+            Thread.sleep(AWAIT_POLL_MILLIS)
+        }
+        throw AssertionError(message)
+    }
+
+    private companion object {
+        const val AWAIT_TIMEOUT_MILLIS = 10_000L
+        const val AWAIT_POLL_MILLIS = 25L
+        const val CHILD_SETTLE_MILLIS = 1_500L
+        const val JOIN_TIMEOUT_MILLIS = 15_000L
     }
 }
